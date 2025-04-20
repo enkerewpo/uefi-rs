@@ -38,6 +38,7 @@ pub use uguid::{guid, Guid};
 
 use core::ffi::c_void;
 use core::fmt::{self, Debug, Formatter};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// Handle to an event structure.
 pub type Event = *mut c_void;
@@ -106,40 +107,6 @@ impl From<Boolean> for bool {
     }
 }
 
-/// An IPv4 internet protocol address.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[repr(transparent)]
-pub struct Ipv4Address(pub [u8; 4]);
-
-impl From<core::net::Ipv4Addr> for Ipv4Address {
-    fn from(ip: core::net::Ipv4Addr) -> Self {
-        Self(ip.octets())
-    }
-}
-
-impl From<Ipv4Address> for core::net::Ipv4Addr {
-    fn from(ip: Ipv4Address) -> Self {
-        Self::from(ip.0)
-    }
-}
-
-/// An IPv6 internet protocol address.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[repr(transparent)]
-pub struct Ipv6Address(pub [u8; 16]);
-
-impl From<core::net::Ipv6Addr> for Ipv6Address {
-    fn from(ip: core::net::Ipv6Addr) -> Self {
-        Self(ip.octets())
-    }
-}
-
-impl From<Ipv6Address> for core::net::Ipv6Addr {
-    fn from(ip: Ipv6Address) -> Self {
-        Self::from(ip.0)
-    }
-}
-
 /// An IPv4 or IPv6 internet protocol address.
 ///
 /// Corresponds to the `EFI_IP_ADDRESS` type in the UEFI specification. This
@@ -150,10 +117,10 @@ impl From<Ipv6Address> for core::net::Ipv6Addr {
 #[repr(C)]
 pub union IpAddress {
     /// An IPv4 internet protocol address.
-    pub v4: Ipv4Address,
+    pub v4: Ipv4Addr,
 
     /// An IPv6 internet protocol address.
-    pub v6: Ipv6Address,
+    pub v6: Ipv6Addr,
 
     /// This member serves to align the whole type to 4 bytes as required by
     /// the spec. Note that this is slightly different from `repr(align(4))`,
@@ -164,17 +131,17 @@ pub union IpAddress {
 impl IpAddress {
     /// Construct a new IPv4 address.
     #[must_use]
-    pub const fn new_v4(ip_addr: [u8; 4]) -> Self {
+    pub fn new_v4(ip_addr: [u8; 4]) -> Self {
         Self {
-            v4: Ipv4Address(ip_addr),
+            v4: Ipv4Addr::from(ip_addr),
         }
     }
 
     /// Construct a new IPv6 address.
     #[must_use]
-    pub const fn new_v6(ip_addr: [u8; 16]) -> Self {
+    pub fn new_v6(ip_addr: [u8; 16]) -> Self {
         Self {
-            v6: Ipv6Address(ip_addr),
+            v6: Ipv6Addr::from(ip_addr),
         }
     }
 }
@@ -190,18 +157,20 @@ impl Debug for IpAddress {
 
 impl Default for IpAddress {
     fn default() -> Self {
-        Self { _align_helper: [0u32; 4] }
+        Self {
+            _align_helper: [0u32; 4],
+        }
     }
 }
 
-impl From<core::net::IpAddr> for IpAddress {
-    fn from(t: core::net::IpAddr) -> Self {
+impl From<IpAddr> for IpAddress {
+    fn from(t: IpAddr) -> Self {
         match t {
-            core::net::IpAddr::V4(ip) => Self {
-                v4: Ipv4Address::from(ip),
+            IpAddr::V4(ip) => Self {
+                v4: Ipv4Addr::from(ip),
             },
-            core::net::IpAddr::V6(ip) => Self {
-                v6: Ipv6Address::from(ip),
+            IpAddr::V6(ip) => Self {
+                v6: Ipv6Addr::from(ip),
             },
         }
     }
@@ -261,33 +230,27 @@ mod tests {
         assert!(bool::from(Boolean(0b11111111)));
     }
 
-    /// Test round-trip conversion between `Ipv4Address` and `core::net::Ipv4Addr`.
+    /// We test that the core::net-types are ABI compatible with the EFI types.
+    /// As long as this is the case, we can reuse core functionality and
+    /// prevent type duplication.
     #[test]
-    fn test_ip_addr4_conversion() {
-        let uefi_addr = Ipv4Address(TEST_IPV4);
-        let core_addr = core::net::Ipv4Addr::from(uefi_addr);
-        assert_eq!(uefi_addr, Ipv4Address::from(core_addr));
+    fn net_abi() {
+        assert_eq!(size_of::<Ipv4Addr>(), 4);
+        assert_eq!(align_of::<Ipv4Addr>(), 1);
+        assert_eq!(size_of::<Ipv6Addr>(), 16);
+        assert_eq!(align_of::<Ipv6Addr>(), 1);
     }
-
-    /// Test round-trip conversion between `Ipv6Address` and `core::net::Ipv6Addr`.
-    #[test]
-    fn test_ip_addr6_conversion() {
-        let uefi_addr = Ipv6Address(TEST_IPV6);
-        let core_addr = core::net::Ipv6Addr::from(uefi_addr);
-        assert_eq!(uefi_addr, Ipv6Address::from(core_addr));
-    }
-
     /// Test conversion from `core::net::IpAddr` to `IpvAddress`.
     ///
     /// Note that conversion in the other direction is not possible.
     #[test]
     fn test_ip_addr_conversion() {
-        let core_addr = core::net::IpAddr::V4(core::net::Ipv4Addr::from(TEST_IPV4));
+        let core_addr = IpAddr::V4(core::net::Ipv4Addr::from(TEST_IPV4));
         let uefi_addr = IpAddress::from(core_addr);
-        assert_eq!(unsafe { uefi_addr.v4.0 }, TEST_IPV4);
+        assert_eq!(unsafe { uefi_addr.v4.octets() }, TEST_IPV4);
 
-        let core_addr = core::net::IpAddr::V6(core::net::Ipv6Addr::from(TEST_IPV6));
+        let core_addr = IpAddr::V6(core::net::Ipv6Addr::from(TEST_IPV6));
         let uefi_addr = IpAddress::from(core_addr);
-        assert_eq!(unsafe { uefi_addr.v6.0 }, TEST_IPV6);
+        assert_eq!(unsafe { uefi_addr.v6.octets() }, TEST_IPV6);
     }
 }
