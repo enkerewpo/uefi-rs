@@ -144,21 +144,21 @@ impl From<Ipv6Address> for core::net::Ipv6Addr {
 ///
 /// Corresponds to the `EFI_IP_ADDRESS` type in the UEFI specification. This
 /// type is defined in the same way as edk2 for compatibility with C code. Note
-/// that this is an untagged union, so there's no way to tell which type of
+/// that this is an **untagged union**, so there's no way to tell which type of
 /// address an `IpAddress` value contains without additional context.
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub union IpAddress {
-    /// This member serves to align the whole type to a 4 bytes as required by
-    /// the spec. Note that this is slightly different from `repr(align(4))`,
-    /// which would prevent placing this type in a packed structure.
-    pub addr: [u32; 4],
-
     /// An IPv4 internet protocol address.
     pub v4: Ipv4Address,
 
     /// An IPv6 internet protocol address.
     pub v6: Ipv6Address,
+
+    /// This member serves to align the whole type to 4 bytes as required by
+    /// the spec. Note that this is slightly different from `repr(align(4))`,
+    /// which would prevent placing this type in a packed structure.
+    pub _align_helper: [u32; 4],
 }
 
 impl IpAddress {
@@ -190,7 +190,7 @@ impl Debug for IpAddress {
 
 impl Default for IpAddress {
     fn default() -> Self {
-        Self { addr: [0u32; 4] }
+        Self { _align_helper: [0u32; 4] }
     }
 }
 
@@ -207,7 +207,15 @@ impl From<core::net::IpAddr> for IpAddress {
     }
 }
 
-/// A Media Access Control (MAC) address.
+/// UEFI Media Access Control (MAC) address.
+///
+/// UEFI supports multiple network protocols and hardware types, not just
+/// Ethernet. Some of them may use MAC addresses longer than 6 bytes. To be
+/// protocol-agnostic and future-proof, the UEFI spec chooses a maximum size
+/// that can hold any supported media access control address.
+///
+/// In most cases, this is just a typical `[u8; 6]` Ethernet style MAC
+/// address with the rest of the bytes being zero.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct MacAddress(pub [u8; 32]);
@@ -215,12 +223,7 @@ pub struct MacAddress(pub [u8; 32]);
 impl From<[u8; 6]> for MacAddress {
     fn from(octets: [u8; 6]) -> Self {
         let mut buffer = [0; 32];
-        buffer[0] = octets[0];
-        buffer[1] = octets[1];
-        buffer[2] = octets[2];
-        buffer[3] = octets[3];
-        buffer[4] = octets[4];
-        buffer[5] = octets[5];
+        buffer.copy_from_slice(&octets);
         Self(buffer)
     }
 }
