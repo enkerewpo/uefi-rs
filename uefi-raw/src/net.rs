@@ -83,19 +83,31 @@ pub union IpAddress {
 }
 
 impl IpAddress {
+    /// Zeroed variant where all bytes are guaranteed to be initialized to zero.
+    pub const ZERO: Self = Self { addr: [0; 4] };
+
     /// Construct a new IPv4 address.
+    ///
+    /// The type won't know that it is an IPv6 address and additional context
+    /// is needed.
+    ///
+    /// # Safety
+    /// The constructor only initializes the bytes needed for IPv4 addresses.
     #[must_use]
-    pub const fn new_v4(ip_addr: [u8; 4]) -> Self {
+    pub const fn new_v4(octets: [u8; 4]) -> Self {
         Self {
-            v4: Ipv4Address(ip_addr),
+            v4: Ipv4Address(octets),
         }
     }
 
     /// Construct a new IPv6 address.
+    ///
+    /// The type won't know that it is an IPv6 address and additional context
+    /// is needed.
     #[must_use]
-    pub const fn new_v6(ip_addr: [u8; 16]) -> Self {
+    pub const fn new_v6(octets: [u8; 16]) -> Self {
         Self {
-            v6: Ipv6Address(ip_addr),
+            v6: Ipv6Address(octets),
         }
     }
 }
@@ -111,19 +123,15 @@ impl Debug for IpAddress {
 
 impl Default for IpAddress {
     fn default() -> Self {
-        Self { addr: [0u32; 4] }
+        Self::ZERO
     }
 }
 
 impl From<StdIpAddr> for IpAddress {
     fn from(t: StdIpAddr) -> Self {
         match t {
-            StdIpAddr::V4(ip) => Self {
-                v4: Ipv4Address::from(ip),
-            },
-            StdIpAddr::V6(ip) => Self {
-                v6: Ipv6Address::from(ip),
-            },
+            StdIpAddr::V4(ip) => Self::new_v4(ip.octets()),
+            StdIpAddr::V6(ip) => Self::new_v6(ip.octets()),
         }
     }
 }
